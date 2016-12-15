@@ -1,33 +1,120 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 
+// TCP socket
+WiFiServer server(8000); 
+
+// Connection to target network established
+bool connected = false;
+
 void setup() {
   Serial.begin(115200);
   Serial.println();
-    
-  connect_to_wifi("SSID", "password");
+
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP("ESP8266", "12345678");
+
+  server.begin();
 }
 
 void loop() {
-  update_service();
+  String msg, ssid, password;
+
+  if(receive_message(msg, '<', '>')) {
+    parse_credentials(msg, ';', ssid, password);
+
+    Serial.println("Received new credentials:");
+    Serial.print("SSID: ");
+    Serial.println(ssid);
+    Serial.print("Password: ");
+    Serial.println(password);
+
+    connected = connect_to_wifi(ssid.c_str(), password.c_str());
+  }
+
+  if(connected) update_service();
   delay(4000);
 }
 
 /*
- * Connect to WiFi access point.
+ * Listens for incoming TCP connections and reads the stream. 
+ * Once a full message is received (delimited with a special start and end char)
+ * it is returned.
+ * 
+ * returns
+ *    true    full message received and written to msg string
+ *    false   no full message received yet
  */
-void connect_to_wifi(const char* ssid, const char* password) {
+bool receive_message(String &msg, char startChar, char stopChar) {
+  static WiFiClient client;
+  static String readString = "";
+  
+  if (!client.connected()) {
+    client = server.available();
+    return false;
+  } 
+  
+  while (client.available()) {
+    readString += char(client.read());
+  }
+
+  // remove before last startChar (incl.)
+  int startIdx = readString.lastIndexOf(startChar);
+  if(startIdx + 1 < readString.length()) {
+    readString = readString.substring(startIdx + 1, readString.length());
+  } else {
+    readString = "";
+  }
+
+  // get string until first stopChar and remove from readString
+  int endIdx = readString.indexOf(stopChar);
+  if(endIdx == -1) return false;
+
+  msg = readString.substring(0, endIdx);
+  readString = readString.substring(endIdx, readString.length());
+  
+  return true;  
+}
+
+/*
+ * Parse message string containing credentials separated with a special char.
+ */
+void parse_credentials(const String &msg, char separator, String &ssid, String &password) {
+  int idx = msg.indexOf(separator);
+  if(idx > -1) {
+    ssid = msg.substring(0, idx);
+    password = msg.substring(idx + 1, msg.length());
+  } else {
+    ssid = msg;
+    password = "";
+  }
+}
+
+/*
+ * Connect to WiFi access point.
+ * 
+ * return
+ *    true   if successful connected
+ *    false  if connection couldn't be established (10s timeout) 
+ */
+bool connect_to_wifi(const char* ssid, const char* password) {
   Serial.print("connecting to ");
   Serial.println(ssid);
   WiFi.begin(ssid, password);
+  int count = 0;
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
+    if(++count > 20) {
+      Serial.println("Couldn't connect to WiFi");
+      return false;
+    }
   }
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
+  return true;
 }
 
 /*
@@ -47,6 +134,7 @@ int update_service() {
 
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("not connected to wifi");
+    connected = false;
     return -1;
   }
   
@@ -56,6 +144,7 @@ int update_service() {
   Serial.println(host);
   if (!client.connect(host, httpsPort)) {
     Serial.println("connection failed");
+    connected = false;
     return -2;
   }
 

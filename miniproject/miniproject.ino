@@ -8,10 +8,11 @@ WiFiServer server(8000);
 bool connected = false;
 
 void setup() {
+  
   Serial.begin(115200);
-  Serial.println();
+  Serial.println("hello");
 
-  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(WIFI_AP);
   WiFi.softAP("ESP8266", "12345678");
 
   server.begin();
@@ -20,7 +21,7 @@ void setup() {
 void loop() {
   String msg, ssid, password;
 
-  if(receive_message(msg, '<', '>')) {
+  if(receive_message(msg, '<', '>')) { // <SSID;pw>
     parse_credentials(msg, ';', ssid, password);
 
     Serial.println("Received new credentials:");
@@ -100,6 +101,7 @@ void parse_credentials(const String &msg, char separator, String &ssid, String &
 bool connect_to_wifi(const char* ssid, const char* password) {
   Serial.print("connecting to ");
   Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   int count = 0;
   while (WiFi.status() != WL_CONNECTED) {
